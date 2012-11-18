@@ -1,0 +1,165 @@
+#!/usr/bin/env macruby
+require 'rubygems' # disable this for a deployed application
+require 'hotcocoa'
+require 'zmq'
+require 'json'
+
+# make the zeromq socket a global variable
+CTX = ZMQ::Context.new
+SOCK = CTX.socket(ZMQ::REP)
+SOCK.bind("tcp://127.0.0.1:12345")
+
+ZMQ_POLL_FREQ = 0.2 # seconds
+EDITOR = 'mate'
+
+
+class WatchFile
+    include HotCocoa
+  
+    attr_reader :nsitem
+    
+    # class method
+    # get a unique integer associated with the unique representation of a WatchFile
+    # each WatchFile will be associated with an NSMenuItem that has this as its
+    # tag
+    def self.tag(server_fn, client_fn, client_hostname)
+        return (server_fn + client_fn + client_hostname).intern.object_id
+    end
+        
+  
+    def initialize(server_fn, client_fn, client_hostname)
+        @server_fn = server_fn
+
+        # the client might either send a file or a directory, but we can only
+        # register FSEvent listeners on the directory, so if they give a file,
+        # we just watch the whole parent directory
+        if File.directory? server_fn
+            directory = server_fn
+        else
+            directory = File.expand_path('..', server_fn)
+        end
+        
+
+        # get the last few elements of the path to put in the title
+        ending = client_fn.split(File::SEPARATOR)[-3..-1].join(File::SEPARATOR)        
+        
+        # create an NSMenuItem to represent this directory        
+        @nsitem = menu_item(:title => "#{client_hostname}: #{ending}", :representedObject => self,
+            :on_action => proc {delete})
+
+        @nsitem.tag = self.class.tag(server_fn, client_fn, client_hostname)
+
+        
+        puts "Watching #{server_fn}" 
+        
+        callback = Proc.new do |stream, client_callback_info, number_of_events, paths_pointer, event_flags, event_ids|
+            #paths_pointer.cast!('*')
+            #puts 'FS EVENT ON'
+            #puts paths_pointer[0]
+            #puts server_fn, client_fn, client_hostname
+            # run the reverse rsync
+            puts "rsync -r #{server_fn} #{client_hostname}:#{client_fn}"
+            `rsync -r #{server_fn} #{client_hostname}:#{client_fn}`
+            
+        end
+        
+        # create the file system event watcher on the directory, with registered callback
+        @stream = FSEventStreamCreate(KCFAllocatorDefault, callback, nil, [directory], KFSEventStreamEventIdSinceNow, 0.0, 0)
+        FSEventStreamScheduleWithRunLoop(@stream, CFRunLoopGetCurrent(), KCFRunLoopDefaultMode)
+        FSEventStreamStart(@stream)        
+    end
+  
+    def delete
+        puts "Ignoring #{@server_fn}" 
+
+        # remove from the menubar
+        @nsitem.menu.removeItem(@nsitem)    
+        
+        # for some reason, this call seems to fail when the @ is actually
+        # in the line
+        stream = @stream
+        FSEventStreamStop(stream)    
+    end
+end
+
+
+
+class Fsync
+    include HotCocoa
+
+    # initialize the application
+    def start()
+        @app = application(:name =>'fsync')
+        @app.delegate = self
+        
+        # make an item in the status bar
+        sb = status_bar.statusItemWithLength(NSVariableStatusItemLength)
+        # set the title of the item. we should be able tp set an image
+        # instead, but whatever
+        sb.title = 'fsync'
+        sb.setHighlightMode(true)
+
+        # add the dropdown menu
+        @menu = menu(:delegate => self)
+        @menu.item("quit fsync", :on_action => proc { @app.terminate(self) })
+        @menu.separator()
+        sb.menu = @menu
+
+        # add the timer
+        @timer = NSTimer.scheduledTimerWithTimeInterval(ZMQ_POLL_FREQ, :target => self, 
+                :selector => 'tick', :userInfo => nil, :repeats => true)
+        
+        # start the main loop
+        @app.run
+    end
+
+    # Poll for ZeroMQ events
+    def tick
+        msg = SOCK.recv(ZMQ::NOBLOCK)
+        SOCK.send('#GO#') unless msg == nil
+
+        case msg
+        when nil
+            return    
+        when '#FILE#'
+            tick_file()
+        when '#MKDIR#'
+            tick_mkdir()
+        else
+           puts 'BAD NEWS'
+           puts msg
+        end
+    end
+    
+    # Respond to a ZeroMQ #FILE# event
+    def tick_file
+        msg = JSON.parse(SOCK.recv)
+        
+        # only add a new item to the menu if that server name is not
+        # already in the menu
+        s_fn = msg["server_fn"]
+        c_fn = msg["client_fn"]
+        hn = msg["hostname"]
+        
+        if @menu.indexOfItemWithTag(WatchFile.tag(s_fn, c_fn, hn)) == -1
+            wf = WatchFile.new(s_fn, c_fn, hn)
+            @menu.addItem wf.nsitem
+        end
+        
+        # but launch the editor regardless
+        `#{EDITOR} #{msg['server_fn']}`
+        
+        SOCK.send('#DONE#')
+    end
+    
+    # Respond to a ZeroMQ #MKDIR# event
+    def tick_mkdir
+        dir = SOCK.recv
+        `mkdir -p #{dir}`
+        SOCK.send '#DONE#'
+    end
+
+
+end
+
+Fsync.new().start()
