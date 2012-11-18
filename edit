@@ -59,7 +59,7 @@ def main(bin, file):
     sock.send('#FILE#')
     assert sock.recv() == '#GO#'
     sock.send(json.dumps({'server_fn': server_fn, 'hostname': myname(),
-                          'client_fn': client_fn})
+                          'client_fn': client_fn}))
     assert sock.recv() == '#DONE#'
 
     
