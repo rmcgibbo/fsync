@@ -25,8 +25,10 @@ From your remote machine, edit files using `$edit <file>`
 You can add the `edit` executable to your path or alias it if you like.
 To add the alias, add
 
-  alias edit=/path/to/fsync/download/path/edit
-  
+```
+alias edit=/path/to/fsync/download/path/edit
+```
 
+to your `.bashrc`
 
 
