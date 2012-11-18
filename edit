@@ -5,23 +5,25 @@ import socket # supposed to be the best way to gett the hostname
 from zmq import ssh
 import subprocess
 import json
-import time
 
+# port for ZeroMQ: this needs to be synced between the server and the client
 PORT = 12345
 SERVER_ROOT = '/tmp'
 
 
 def normalize_path(path):
+    "Return the cannonical path of a file, relative to $HOME"
     return os.path.relpath(os.path.abspath(path), os.environ['HOME'])
 
 try:
     ssh_string = os.environ['SSH_CLIENT']
     hostip = ssh_string.split()[0]
 except KeyError:
-    raise RuntimeError('Could not find SSH CLIENT')
+    raise RuntimeError("Could not find SSH CLIENT in your env. "
+        "Without it, I don't know how to find your workstation")
     
 
-def main(bin, file):
+def main(file):
     nfile = normalize_path(file)
     if not os.path.exists(file):
         # if the file doesn't exist, touch it
@@ -72,6 +74,6 @@ def main(bin, file):
     
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print 'Usage: %s <directory>' % sys.arv[0]
+        print 'Usage: %s <file_or_directory>' % sys.arv[0]
 
-    main('mate', sys.argv[1])
+    main(sys.argv[1])
