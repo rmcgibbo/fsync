@@ -35,8 +35,9 @@ def main(bin, file):
     sock = context.socket(zmq.REQ)
     ssh.tunnel_connection(sock, "tcp://localhost:%d" % PORT, hostip)
 
-    
     server_fn = os.path.join(SERVER_ROOT, myname(), nfile)
+    if os.path.isdir(server_fn):
+        server_fn += '/'
 
     #rsync the file to the server
     def do_rsync():
