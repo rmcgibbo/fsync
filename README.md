@@ -11,6 +11,7 @@ via ZeroMQ over SSH. The file transfer is done by rsync.
 ###On your workstation:
 - macruby: https://macruby.macosforge.org/files/nightlies/
 - macruby zeromq bindings: `sudo macgem install zmq`
+- hotcocoa: `sudo macgem install hotcocoa`
 - passwordless ssh between the machines: http://osxdaily.com/2012/05/25/how-to-set-up-a-password-less-ssh-login/
 
 ###On your remote machine:
