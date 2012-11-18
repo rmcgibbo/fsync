@@ -15,6 +15,9 @@ EDITOR = 'mate'
 
 class WatchFile
     include HotCocoa
+    # the FSEvents callback doesn't really let you use closures
+    #http://stackoverflow.com/a/13440198/1079728
+    @@registry = {}
   
     attr_reader :nsitem
     
@@ -25,11 +28,8 @@ class WatchFile
     def self.tag(server_fn, client_fn, client_hostname)
         return (server_fn + client_fn + client_hostname).intern.object_id
     end
-        
   
     def initialize(server_fn, client_fn, client_hostname)
-        @server_fn = server_fn
-
         # the client might either send a file or a directory, but we can only
         # register FSEvent listeners on the directory, so if they give a file,
         # we just watch the whole parent directory
@@ -38,6 +38,7 @@ class WatchFile
         else
             directory = File.expand_path('..', server_fn)
         end
+    
         
 
         # get the last few elements of the path to put in the title
@@ -53,15 +54,23 @@ class WatchFile
         puts "Watching #{server_fn}" 
         
         callback = Proc.new do |stream, client_callback_info, number_of_events, paths_pointer, event_flags, event_ids|
-            #paths_pointer.cast!('*')
+            paths_pointer.cast!('*')
             #puts 'FS EVENT ON'
-            #puts paths_pointer[0]
+            
+            reg = @@registry[File.realpath(paths_pointer[0])]
+            server_fn = reg[:sfn]
+            client_fn = reg[:cfn]
+            client_hostname = reg[:hn]
             #puts server_fn, client_fn, client_hostname
             # run the reverse rsync
             puts "rsync -r #{server_fn} #{client_hostname}:#{client_fn}"
             `rsync -r #{server_fn} #{client_hostname}:#{client_fn}`
             
         end
+        
+        # register our other data with the class registry, since the closure
+        # doesn't work right with FSEvents
+        @@registry[File.realpath(directory)] = {:sfn=>server_fn, :cfn=>client_fn, :hn=>client_hostname}
         
         # create the file system event watcher on the directory, with registered callback
         @stream = FSEventStreamCreate(KCFAllocatorDefault, callback, nil, [directory], KFSEventStreamEventIdSinceNow, 0.0, 0)
@@ -70,8 +79,6 @@ class WatchFile
     end
   
     def delete
-        puts "Ignoring #{@server_fn}" 
-
         # remove from the menubar
         @nsitem.menu.removeItem(@nsitem)    
         
