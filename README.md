@@ -17,6 +17,7 @@ via ZeroMQ over SSH. The file transfer is done by rsync.
 ###On your remote machine:
 - python: http://www.enthought.com/products/epdgetstart.php?platform=linux
 - pyzermomq: `pip install pyzmq`
+- pexepect: `pip install pexpect`
 
 
 ##Install
