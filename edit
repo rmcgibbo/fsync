@@ -36,8 +36,10 @@ def main(bin, file):
     ssh.tunnel_connection(sock, "tcp://localhost:%d" % PORT, hostip)
 
     server_fn = os.path.join(SERVER_ROOT, myname(), nfile)
-    if os.path.isdir(server_fn):
+    client_fn = os.path.abspath(file)
+    if os.path.isdir(file):
         server_fn += '/'
+        client_fn += '/'
 
     #rsync the file to the server
     def do_rsync():
@@ -57,7 +59,7 @@ def main(bin, file):
     sock.send('#FILE#')
     assert sock.recv() == '#GO#'
     sock.send(json.dumps({'server_fn': server_fn, 'hostname': myname(),
-                          'client_fn': os.path.abspath(file)}))
+                          'client_fn': client_fn})
     assert sock.recv() == '#DONE#'
 
     
