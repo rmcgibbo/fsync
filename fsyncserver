@@ -18,7 +18,6 @@ class WatchFile
     # the FSEvents callback doesn't really let you use closures
     #http://stackoverflow.com/a/13440198/1079728
     @@registry = {}
-  
     attr_reader :nsitem
     
     # class method
@@ -38,34 +37,24 @@ class WatchFile
         else
             directory = File.expand_path('..', server_fn)
         end
-    
-        
 
         # get the last few elements of the path to put in the title
         ending = client_fn.split(File::SEPARATOR)[-3..-1].join(File::SEPARATOR)        
-        
         # create an NSMenuItem to represent this directory        
-        @nsitem = menu_item(:title => "#{client_hostname}: #{ending}", :representedObject => self,
-            :on_action => proc {delete})
+        @nsitem = menu_item(:title => "#{client_hostname}: #{ending}",
+            :representedObject => self,
+            :on_action => proc {delete},
+            :tag => self.class.tag(server_fn, client_fn, client_hostname))
 
-        @nsitem.tag = self.class.tag(server_fn, client_fn, client_hostname)
-
-        
-        puts "Watching #{server_fn}" 
-        
         callback = Proc.new do |stream, client_callback_info, number_of_events, paths_pointer, event_flags, event_ids|
             paths_pointer.cast!('*')
-            #puts 'FS EVENT ON'
-            
             reg = @@registry[File.realpath(paths_pointer[0])]
             server_fn = reg[:sfn]
             client_fn = reg[:cfn]
             client_hostname = reg[:hn]
-            #puts server_fn, client_fn, client_hostname
-            # run the reverse rsync
+            # run the rsync of the edited files back to the client
             puts "rsync -r #{server_fn} #{client_hostname}:#{client_fn}"
             `rsync -r #{server_fn} #{client_hostname}:#{client_fn}`
-            
         end
         
         # register our other data with the class registry, since the closure
@@ -79,16 +68,13 @@ class WatchFile
     end
   
     def delete
-        # remove from the menubar
-        @nsitem.menu.removeItem(@nsitem)    
-        
+        @nsitem.menu.removeItem(@nsitem)  # remove from the menubar    
         # for some reason, this call seems to fail when the @ is actually
         # in the line
         stream = @stream
         FSEventStreamStop(stream)    
     end
 end
-
 
 
 class Fsync
@@ -165,8 +151,6 @@ class Fsync
         `mkdir -p #{dir}`
         SOCK.send '#DONE#'
     end
-
-
 end
 
 Fsync.new().start()
