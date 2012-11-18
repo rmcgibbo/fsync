@@ -9,7 +9,7 @@ CTX = ZMQ::Context.new
 SOCK = CTX.socket(ZMQ::REP)
 SOCK.bind("tcp://127.0.0.1:12345")
 
-ZMQ_POLL_FREQ = 0.2 # seconds
+ZMQ_POLL_FREQ = 0.1 # seconds
 EDITOR = 'mate'
 
 
