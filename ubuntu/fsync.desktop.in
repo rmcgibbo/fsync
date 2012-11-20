@@ -1,0 +1,8 @@
+[Desktop Entry]
+_Name=fsync
+_Comment=Fsync application
+Categories=GNOME;Utility;
+Exec=fsync
+Icon=/usr/share/fsync/media/fsync.svg
+Terminal=false
+Type=Application
