@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 import sys, os
 import zmq
-import socket # supposed to be the best way to get the hostname
+import socket  # supposed to be the best way to get the hostname
 import getpass # supposed to be the best way to get the username
-from zmq import ssh
 import subprocess
 import json
 
@@ -20,9 +19,27 @@ PORT = 34401
 # the files will be put in /tmp/vspm55/bla/bla/bla
 SERVER_ROOT_DIR = '/tmp'
 
+# DIRTY DIRTY MONKEY PATCHING:
+# Dynamically redefine the getpass.getpass method in the python
+# standard library to print this error and exit the whole program.
+# This intercepts the call made zmq.ssh.ssh_tunnel asking for your
+# password if you don't have passwordless SSH keys set up.
+# this works with pyzmq 2.2
+def mygetpass(prompt):
+    script_name = os.path.basename(sys.argv[0])
+    print usage(script_name)
+    print ('%s: error: you must enable symmetric passwordless SSH between this computer '
+           'and the host by mutually exchanging public keys' % script_name)
+    sys.exit(1)
+getpass.getpass = mygetpass
+# this monkey patch only works if we import the ssh module after applying the patch
+from zmq import ssh
+
+
 def normalize_path(path):
     "Return the cannonical path of a file, relative to $HOME"
     return os.path.relpath(os.path.abspath(path), os.environ['HOME'])
+
 
 def main(path, editor, server_addr):
     "Run everything!"
@@ -82,6 +99,7 @@ def main(path, editor, server_addr):
 def usage(script_name):
     return 'Usage: %s [-h] [-e EDITOR] {file_or_directory}' % script_name
 
+
 def help():
     return '''
 #########################################################################
@@ -115,10 +133,11 @@ optional arguments:
   -e, --editor          Choose which editor to use on you local workstation
 
 positional argument:
-  {file_or_directory}   The file or directory to open on your local machine
-'''    
+  {file_or_directory}   The file or directory to open on your local machine'''    
+
 
 def dispatch():
+    "Parse command line options and relevant env variables, then call main()"
     script_name = os.path.basename(sys.argv[0])
 
     if len(sys.argv) < 2:
