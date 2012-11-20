@@ -27,8 +27,8 @@ SERVER_ROOT_DIR = '/tmp'
 # this works with pyzmq 2.2
 def mygetpass(prompt):
     script_name = os.path.basename(sys.argv[0])
-    print usage(script_name)
-    print ('%s: error: you must enable symmetric passwordless SSH between this computer '
+    print >> sys.stderr, usage(script_name)
+    print >> sys.stderr, ('%s: error: you must enable symmetric passwordless SSH between this computer '
            'and the host by mutually exchanging public keys' % script_name)
     sys.exit(1)
 getpass.getpass = mygetpass
@@ -140,12 +140,12 @@ def dispatch():
     script_name = os.path.basename(sys.argv[0])
 
     if len(sys.argv) < 2:
-        print usage(script_name)
-        print '%s: error: too few arguments' % script_name
-        return
+        print >> sys.stderr, usage(script_name)
+        print >> sys.stderr, '%s: error: too few arguments' % script_name
+        return 1
     elif sys.argv[1] in ['-h', '--help']:
         print help()
-        return
+        return 0
     
     # set the editor
     # each option here overrides the last, if present
@@ -164,17 +164,18 @@ def dispatch():
         ssh_string = os.environ['SSH_CLIENT']
         server_addr = ssh_string.split()[0]
     else:
-        print usage(script_name)
-        print ('%s: error: could not find SSH_CLIENT or '
+        print >> sys.stderr, usage(script_name)
+        print >> sys.stderr, ('%s: error: could not find SSH_CLIENT or '
         'FSYNC_SERVER env vars' % script_name)
-        return
+        return 1
 
     if 'FSYNC_USER' in os.environ:
-        server_add = os.environ['FSYNC_USER'] + '@' + server_addr
+        server_addr = os.environ['FSYNC_USER'] + '@' + server_addr
 
     main(path=sys.argv[1], editor=editor, server_addr=server_addr)
 
    
 if __name__ == '__main__':
-    dispatch()
+    status = dispatch()
+    sys.exit(status)
 
