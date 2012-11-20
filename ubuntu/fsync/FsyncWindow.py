@@ -107,7 +107,7 @@ class Fsync:
 
         return 'OK'
     
-    def mkdir_for_client(msg):
+    def mkdir_for_client(self, msg):
         """Make a directory on the server that
         the client can deposit data in"""
         try:
