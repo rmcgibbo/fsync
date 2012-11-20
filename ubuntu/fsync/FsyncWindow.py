@@ -26,7 +26,7 @@ import appindicator
 
 # other imports
 import zmq
-from fsync_lib.zmqthread import ZMQThread
+from zmqthread import ZMQThread
 
 # necessary to tell gtk we're going to use threads
 gtk.gdk.threads_init()
