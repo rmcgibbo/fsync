@@ -1,0 +1,162 @@
+#!/usr/bin/env python
+import sys, os
+import zmq
+import socket # supposed to be the best way to get the hostname
+import getpass # supposed to be the best way to get the username
+from zmq import ssh
+import subprocess
+import json
+
+# the editor to use. this can be overriden with an env variable
+# or on the command line
+DEFAULT_EDITOR = '/usr/local/bin/mate'
+
+# port for ZeroMQ: this needs to be synced between the server and the client,
+# so you probably don't want to change it
+PORT = 34401
+
+# root directory to put the files on the server
+# if the SERVER_ROOT_DIR is /tmp and your hostname is "vsmp55", then
+# the files will be put in /tmp/vspm55/bla/bla/bla
+SERVER_ROOT_DIR = '/tmp'
+
+def normalize_path(path):
+    "Return the cannonical path of a file, relative to $HOME"
+    return os.path.relpath(os.path.abspath(path), os.environ['HOME'])
+
+def main(path, editor, server_addr):
+    "Run everything!"
+
+    npath = normalize_path(path)
+    if not os.path.exists(path):
+        # if the file doesn't exist, touch it
+        open(path, 'w').close()
+    if '..' in npath:
+        raise ValueError('Sorry, %s is not in the home directory' % path)
+    
+    context = zmq.Context.instance()
+    sock = context.socket(zmq.REQ)
+    ssh.tunnel_connection(sock, "tcp://localhost:%d" % PORT, server_addr)
+
+    server_fn = os.path.join(SERVER_ROOT_DIR, socket.gethostname(), npath)
+    client_fn = os.path.abspath(path)
+    
+    # without trailing slashes, rsync will copy the results back into
+    # a subdirectory
+    if os.path.isdir(path):
+        server_fn += '/'
+        client_fn += '/'
+
+    #rsync the file to the server
+    def do_rsync():
+        # when we send the files to the server, we want to delete any
+        # junk thats currently there
+        # note, when the server rsyncs the results back, it will NOT use --delete
+        cmd = ['/usr/bin/rsync', '--delete', '-r', path, server_addr + ':' + server_fn]
+        subprocess.check_output(' '.join(cmd), shell=True, stderr=subprocess.STDOUT)
+
+    try:
+        do_rsync()
+    except subprocess.CalledProcessError:
+        # tell the server to do the mkdir operator that rsync doesn't want to do
+        # if not necessary, we'd prefer not to do the MKDIR, which is why we
+        # have it in the except block
+        sock.send_json({"type":"mkdir",
+                        "dir": os.path.dirname(server_fn)})
+        assert sock.recv() == 'OK'
+        do_rsync()
+    
+    #http://stackoverflow.com/questions/842059/is-there-a-portable-way-to-get-the-current-username-in-python
+    user_at_client = '%s@%s' % (getpass.getuser(), socket.gethostname())
+        
+    #alert the server that we've sent it the file
+    sock.send(json.dumps({'type': 'path',
+                          'displayname': '~/' + npath,
+                          'editor': editor,
+                          'server_fn': server_fn,
+                          'hostname': user_at_client,
+                          'client_fn': client_fn}))
+    assert sock.recv() == 'OK'
+
+
+def usage(script_name):
+    return 'Usage: %s [-h] [-e EDITOR] {file_or_directory}' % script_name
+
+def help():
+    return '''
+#########################################################################
+##                           fsync client                              ##
+##                  http://github.com/rmcgibbo/fsync                   ##
+#########################################################################
+
+Inside your SSH session, launch your local editor to work on remote files.
+
+This script will open up a file or directory on your local workstation,
+and any edits you make will by synced back to the remote machine. To get
+going, you need to run the fsync server on your local workstation -- tt's
+a tiny little status bar app.
+
+requirements:
+  * fsync server app running on local workstation
+  * local workstation is accessible via passwordless SSH from your remote
+    server, and its IP is set in the SSH_CLIENT env variable. To test,
+    try running `ssh $SSH_CLIENT`
+
+customize with env variables:
+  * $FSYNC_EDITOR                  Set which editor to use on your local
+                                   workstation.
+  * $FSYNC_USER, $FSYNC_SERVER     Override looking at SSH_CLIENT. If you set
+                                   FSYNC_USER=robert and FSYNC_SERVER=vspm10,
+                                   your files will be synced to robert@vspm10
+                                   instead of whatever's in SSH_CLIENT.
+
+optional arguments:
+  -h, --help            Show this help message and exit
+  -e, --editor          Choose which editor to use on you local workstation
+
+positional argument:
+  {file_or_directory}   The file or directory to open on your local machine
+'''    
+
+def dispatch():
+    script_name = os.path.basename(sys.argv[0])
+
+    if len(sys.argv) < 2:
+        print usage(script_name)
+        print '%s: error: too few arguments' % script_name
+        return
+    elif sys.argv[1] in ['-h', '--help']:
+        print help()
+        return
+    
+    # set the editor
+    # each option here overrides the last, if present
+    editor = DEFAULT_EDITOR
+    if 'FSYNC_EDITOR' in os.environ:
+        editor = os.environ['FSYNC_EDITOR']
+    if sys.argv[1] in ['-e', '--editor']:
+        # this overrides the env variable
+        sys.argv.pop(1)
+        editor = sys.argv.pop(1)
+
+    # set the server
+    if 'FSYNC_SERVER' in os.environ:
+        server_addr = os.environ['FSYNC_SERVER']
+    elif 'SSH_CLIENT' in os.environ:
+        ssh_string = os.environ['SSH_CLIENT']
+        server_addr = ssh_string.split()[0]
+    else:
+        print usage(script_name)
+        print ('%s: error: could not find SSH_CLIENT or '
+        'FSYNC_SERVER env vars' % script_name)
+        return
+
+    if 'FSYNC_USER' in os.environ:
+        server_add = os.environ['FSYNC_USER'] + '@' + server_addr
+
+    main(path=sys.argv[1], editor=editor, server_addr=server_addr)
+
+   
+if __name__ == '__main__':
+    dispatch()
+
