@@ -1,4 +1,5 @@
 #fsync
+------
 
 *Inside your SSH session, launch your local editor to work on remote files.*
 
@@ -68,6 +69,3 @@ The server uses mac's FSEvents API to monitor for filesystem events on the trans
 files. When any event gets triggered (i.e. saving), it runs an rsync to transfer
 the files back to the client.
 
-##Random
-Note: I think an Ubuntu server would probably be pretty easy to write. You might be
-able to do it in python and be able to avoid macruby.
