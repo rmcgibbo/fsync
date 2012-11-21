@@ -18,9 +18,8 @@ From your SSH session into a remote machine:
 
 `$ fs foo.bar`
 
-Pops up your editor, on your workstation. When you hit save, your modified file
-will be automatically synced back to your workstation. Note, you need to be
-running the little fsync menu bar app on your workstation.
+Pops up your file, in your editor, on your workstation. When you hit save, the
+modified file will be automatically synced back to your workstation. Poof.
 
 You can make some customizations by setting the environment variables
 `$FSYNC_EDITOR`, `$FSYNC_USER`, and `$FSYNC_SERVER`. See the `-h` help for the
