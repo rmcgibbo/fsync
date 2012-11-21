@@ -29,6 +29,6 @@
 @property(strong, nonatomic) ZMQContext* ctx;
 @property(strong, nonatomic) ZMQSocket* sock;
 @property(strong, nonatomic) NSTimer* timer;
-
+@property(strong, nonatomic) NSMenuItem* topSeparator;
 
 @end

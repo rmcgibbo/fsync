@@ -25,6 +25,7 @@
 @synthesize ctx = ctx_;
 @synthesize sock = sock_;
 @synthesize timer = timer_;
+@synthesize topSeparator = topSeparator_;
 
 - (void) applicationDidFinishLaunching: (NSNotification *) aNotification {
     //Insert initialize code here
@@ -51,8 +52,10 @@
         [self.statusItem setImage:statusImage];
     }
 
-    // add a separator below the quit item
-    [self.menu addItem: [NSMenuItem separatorItem]];
+    // top separator, above which the separate paths will be (below which is the about stuff
+    self.topSeparator = [NSMenuItem separatorItem];
+    [self.topSeparator setHidden: YES];
+    [self.menu addItem: self.topSeparator];
     
     // make the about item
     NSMenuItem* aboutItem = [[NSMenuItem alloc] initWithTitle:@"About fsync" action:@selector(showAboutWebPage:) keyEquivalent:@""];
@@ -78,6 +81,13 @@
     
     // Remove the menu item
     [self.menu removeItem:item];
+
+    // if there are no items being watched, hide the top separator
+    if ([self.menu numberOfItems] <= 4) {
+        //three items being "Quit", "About" and the separator between them
+        [self.topSeparator setHidden:YES];
+    }
+
 }
 
 - (void) registerNewPath:(NSDictionary*)msg {
@@ -104,6 +114,10 @@
 
         [item setRepresentedObject:wf];        
         [self.menu insertItem:item atIndex:0];
+
+        // if we're adding menu items, make sure that the separator which
+        // comes above
+        [self.topSeparator setHidden:NO];
     }
     
     //now launch the editor
