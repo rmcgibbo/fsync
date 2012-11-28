@@ -18,6 +18,7 @@
 // fsync. If not, see http://www.gnu.org/licenses/.
 
 #import <Foundation/Foundation.h>
+#import "AppDelegate.h"
 
 @interface WatchFolder : NSObject
 
@@ -25,6 +26,7 @@
 @property(strong, nonatomic) NSString* client_fn;
 @property(strong, nonatomic) NSString* hostname;
 @property FSEventStreamRef stream;
+
 
 - (id) initWithServerFn:(NSString *)server_fn client_fn:(NSString*) client_fn hostname:(NSString*) hostname;
 - (void) unregisterStream;

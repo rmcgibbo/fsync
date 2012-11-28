@@ -26,13 +26,11 @@
 @synthesize sock = sock_;
 @synthesize timer = timer_;
 @synthesize topSeparator = topSeparator_;
-
-- (void) applicationDidFinishLaunching: (NSNotification *) aNotification {
-    //Insert initialize code here
-}
+@synthesize animTimer = animTimer_;
+@synthesize statusImages = statusImages_;
 
 - (void) awakeFromNib {
-    self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
+    self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:21];
     // allocate the menu
     self.menu = [NSMenu alloc];
     
@@ -40,17 +38,11 @@
     [self.statusItem setMenu:self.menu];
     [self.statusItem setHighlightMode:YES];
     
-    NSString *imagePath = [[NSBundle mainBundle] pathForResource:@"gtk_refresh" ofType:@"png"];
-    NSImage * statusImage =  [[NSImage alloc] initWithContentsOfFile: imagePath];
-
-    if (statusImage == nil) {
-        NSLog(@"Error loading image");
-        [self.statusItem setTitle:@"fsync"];
-    }
-    else {
-        NSLog(@"size %f %f",statusImage.size.width, statusImage.size.height);
-        [self.statusItem setImage:statusImage];
-    }
+    //load the images
+    self.statusImages = [self loadImages];
+    self->n_rsyncs = 0;
+    [self stopRsyncIndicator:nil]; //sets the image
+        
 
     // top separator, above which the separate paths will be (below which is the about stuff
     self.topSeparator = [NSMenuItem separatorItem];
@@ -69,6 +61,75 @@
     [self.menu addItem: quitItem];
     
     [self start_zmq];
+
+}
+
+- (NSArray*) loadImages {
+    // load all of the images
+    NSString* imagePath;
+    NSImage* statusImage;
+    NSSize imageSize;
+    NSMutableArray* images = [[NSMutableArray alloc] initWithCapacity:72];
+    NSFileManager* fm = [NSFileManager defaultManager];
+
+    for (int i = 0; i < 72; i+=1) {
+        imagePath = [[NSBundle mainBundle] pathForResource:[NSString stringWithFormat:@"refresh_small_%d", 5*i] ofType:@"png"];
+
+        if (![fm fileExistsAtPath:imagePath]) {
+            NSLog(@"Error!");
+        }
+
+        statusImage =  [[NSImage alloc] initWithContentsOfFile: imagePath];
+
+        imageSize.width = 18;
+        imageSize.height = 18;
+        [statusImage setSize:imageSize];
+
+        [images insertObject:statusImage atIndex:i];
+    }
+
+    return [[NSArray alloc] initWithArray:images];
+}
+
+- (void)startRsyncIndicator:(id) sender {
+    // start the gui indicator of a progressing rsync
+    // the indicator is the rotating of the icon
+    // call this whenever you start an rsync
+    
+    self->currentFrame = 0;
+    if (self->n_rsyncs == 0) {
+        self.animTimer = [NSTimer scheduledTimerWithTimeInterval:1.0/15.0 target:self selector:@selector(animateTick:) userInfo:nil repeats:YES];
+    }
+    
+    self->n_rsyncs++;
+}
+
+- (void)stopRsyncIndicator:(id) sender {
+    // stop the gui indicator of the progressing rsync
+    // this only ACTUALLY stops the indicator if there
+    // are NO currently progressing rsyncs.
+    // call this whenever you stop an rsync
+    
+    self->n_rsyncs--;
+    
+    // keep it in valid teritory
+    if (self->n_rsyncs < 0)
+        self->n_rsyncs = 0;
+    
+    // only stop the animation loop if the number
+    // of outstanding rsyncs is zero
+    if (self->n_rsyncs == 0) {
+        [self.animTimer invalidate];
+        self->currentFrame = 0;
+        [self.statusItem setImage:[self.statusImages objectAtIndex:0]];
+    }
+}
+
+- (void) animateTick:(NSTimer*) timer {
+    NSImage* image = [self.statusImages objectAtIndex:self->currentFrame];
+    [self.statusItem setImage:image];
+    self->currentFrame += 1;
+    self->currentFrame %= [self.statusImages count];
 }
 
 - (void) showAboutWebPage:(NSMenuItem*) item {
@@ -120,9 +181,70 @@
         [self.topSeparator setHidden:NO];
     }
     
-    //now launch the editor
-    NSArray* args = [NSArray arrayWithObject:server_fn];     
-    [NSTask launchedTaskWithLaunchPath:editor arguments:args];
+    //launch the editor shell command
+    [self performSelectorInBackground:@selector(launchEditor:) withObject:[NSArray arrayWithObjects:editor, server_fn, nil]];
+}
+
+- (void) raiseAlert:(NSString*) msg {
+    // hack: remove the first item, from the list
+    // really should remove the *correct* item, but it's likely to be the first.
+    [self removeMenuItem: [[self.menu itemArray] objectAtIndex:0]];
+
+    NSAlert* alert = [NSAlert alertWithMessageText:@" Error" defaultButton:@"Ok" alternateButton:nil otherButton:nil informativeTextWithFormat:msg];
+    [alert runModal];
+}
+
+- (void) launchEditor:(NSArray*) editorPathAndArg {
+    //editorPathAndArg should be an array with the editor at index 0 and the filename to open at index 1
+
+    assert ([editorPathAndArg count] == 2);
+    NSString* editorPath = [editorPathAndArg objectAtIndex:0];
+    NSString* arg = [editorPathAndArg objectAtIndex:1];
+
+    NSString* absEditorPath;
+
+    //check if editor is an absolute path
+    if (![editorPath hasPrefix:@"/"]) {
+        NSString* pathEnvVar = [[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"];
+
+        absEditorPath = [self searchFileInPath:editorPath searchPath:pathEnvVar];
+        if (absEditorPath == nil) {
+            NSString* msg = [[NSString alloc] initWithFormat:@"The executable '%@' was not found in the $PATH", editorPath]; 
+            [self performSelectorOnMainThread:@selector(raiseLaunchAlert:) withObject:msg waitUntilDone:FALSE];
+            return;
+        }
+    } else {
+        absEditorPath = editorPath;
+    }
+
+    NSTask* task = [NSTask new];
+    NSPipe* pipe = [NSPipe pipe];
+
+    [task setLaunchPath:absEditorPath];
+    [task setArguments:[NSArray arrayWithObject:arg]];
+    [task setStandardError:pipe];
+    [task launch];
+    [task waitUntilExit];
+
+    if ([task terminationStatus] != 0) {
+        NSData* stderrData = [[pipe fileHandleForReading] readDataToEndOfFile];
+        NSString* stderr =[[NSString alloc] initWithData:stderrData encoding:NSUTF8StringEncoding];
+        [self performSelectorOnMainThread: @selector(raiseLaunchAlert:) withObject:stderr waitUntilDone:FALSE];
+    }
+}
+
+- (NSString*) searchFileInPath:(NSString*) filename searchPath:(NSString*) searchPath {
+    //Search for a file in a bunch of ':' directorys (i.e. $PATH)
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+
+    for (NSString* path in [searchPath componentsSeparatedByString: @":"]) {
+        NSString* candidate = [[NSString alloc] initWithFormat: @"%@/%@", path, filename];
+        BOOL exists = [fileManager fileExistsAtPath: candidate];
+        if (exists) {
+            return [candidate stringByStandardizingPath];
+        }
+    }
+    return nil;
 }
 
 - (void) mkdirForClient:(NSDictionary*)msg {
@@ -168,11 +290,12 @@
     self.ctx = [[ZMQContext alloc] initWithIOThreads:1];
     self.sock = [self.ctx socketWithType: ZMQ_REP];
     
-    BOOL result = [self.sock bindToEndpoint:@"tcp://127.0.0.1:34401"];
+    BOOL result = [self.sock bindToEndpoint:@"tcp://*:34401"];
     if (result) {
         NSLog(@"ZMQ bound sucessfully");
     } else {
-        NSLog(@"ZMQ binding failure");
+        NSAlert* alert = [NSAlert alertWithMessageText:@"Error" defaultButton:@"Quit" alternateButton:nil otherButton:nil informativeTextWithFormat:@"ZeroMQ Binding Failure. Is the port already in use?"];    
+        [alert runModal];
         [self terminateApp:@"Failure"];
     }
     

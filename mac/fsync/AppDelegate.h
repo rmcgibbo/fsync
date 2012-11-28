@@ -22,7 +22,10 @@
 #import "WatchFolder.h"
 
 
-@interface AppDelegate : NSObject
+@interface AppDelegate : NSObject {
+    NSInteger currentFrame;
+    NSInteger n_rsyncs;
+}
 
 @property(strong, nonatomic) NSMenu* menu;
 @property(strong, nonatomic) NSStatusItem* statusItem;
@@ -30,5 +33,12 @@
 @property(strong, nonatomic) ZMQSocket* sock;
 @property(strong, nonatomic) NSTimer* timer;
 @property(strong, nonatomic) NSMenuItem* topSeparator;
+@property(strong, nonatomic) NSTimer* animTimer;
+@property(strong, nonatomic) NSArray* statusImages;
+
+
+-(void) raiseAlert:(NSString*) msg;
+-(void)startRsyncIndicator:(id) sender;
+-(void)stopRsyncIndicator:(id) sender;
 
 @end

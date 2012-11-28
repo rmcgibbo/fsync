@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU General Public License along with
 // fsync. If not, see http://www.gnu.org/licenses/.
 #import "WatchFolder.h"
+#import "AppDelegate.h"
 
 
 @implementation WatchFolder
@@ -25,22 +26,45 @@
 @synthesize hostname = hostname_;
 @synthesize stream = stream_;
 
+
 static void callback(ConstFSEventStreamRef streamRef, void* pClientCallBackInfo, size_t numEvents, void* pEventPaths, const FSEventStreamEventFlags eventFlags[], const FSEventStreamEventId eventIds[]) {
     //This is like an instance method, since pClientCallBackInfo contains the WatchFolder instance
     WatchFolder* self = (__bridge WatchFolder*) pClientCallBackInfo;
+    AppDelegate* appdelegate = (AppDelegate *)[[NSApplication sharedApplication] delegate];
     
     // execute rsync
     // puts "rsync -r #{server_fn} #{client_hostname}:#{client_fn}"    
     NSString* bin = @"/usr/bin/rsync";
     NSArray* args = [NSArray arrayWithObjects:@"-r", self.server_fn, [NSString stringWithFormat:@"%@:%@", self.hostname, self.client_fn], nil];
-    
-    NSLog(@"Rsyncing %@ %@", bin, args);
-    [[NSTask launchedTaskWithLaunchPath:bin arguments:args] waitUntilExit];
-    NSLog(@"Rsync Completed!");
+
+    //NSLog(@"Rsyncing %@ %@", bin, args);
+    NSLog(@"Starting rsync");
+    NSTask* task = [NSTask new];
+    NSPipe* pipe = [NSPipe pipe];
+
+    [task setLaunchPath:bin];
+    [task setArguments:args];
+    [task setStandardError:pipe];
+
+    //start the animation
+    [appdelegate performSelectorOnMainThread:@selector(startRsyncIndicator:) withObject:nil waitUntilDone:FALSE];
+
+    [task launch];
+    [task waitUntilExit];
+    NSLog(@"End rsync");
+
+    // stop the animation
+    [appdelegate performSelectorOnMainThread:@selector(stopRsyncIndicator:) withObject:nil waitUntilDone:FALSE];
+
+    if ([task terminationStatus] != 0) {
+        NSData* stderrData = [[pipe fileHandleForReading] readDataToEndOfFile];
+        NSString* stderr =[[NSString alloc] initWithData:stderrData encoding:NSUTF8StringEncoding];
+       [appdelegate performSelectorOnMainThread:@selector(raiseAlert:) withObject:stderr waitUntilDone:FALSE];
+    }
 }
 
 
-- (id) initWithServerFn:(NSString *)server_fn client_fn:(NSString*) client_fn hostname:(NSString*) hostname  {
+- (id) initWithServerFn:(NSString *)server_fn client_fn:(NSString*) client_fn hostname:(NSString*) hostname {
     self.server_fn = server_fn;
     self.client_fn = client_fn;
     self.hostname = hostname;
@@ -52,7 +76,9 @@ static void callback(ConstFSEventStreamRef streamRef, void* pClientCallBackInfo,
     BOOL isDir;
     BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:server_fn isDirectory:&isDir];
     if (!exists) {
-        NSLog(@"File doesn't exist!");
+        NSAlert* alert = [NSAlert alertWithMessageText:@"Filesystem Watch Error" defaultButton:@"Quit" alternateButton:nil otherButton:nil informativeTextWithFormat:@"File doesn't exist"];    
+        [alert runModal];
+        [[NSApplication sharedApplication] terminate:self];
     }
     
     NSString* dir = server_fn;
@@ -64,6 +90,7 @@ static void callback(ConstFSEventStreamRef streamRef, void* pClientCallBackInfo,
     
     // make the context for the callback. We pass a pointer to
     // self, so that it will be like an instance method
+
     FSEventStreamContext cntx;
     cntx.version = 0;
     cntx.info = (__bridge void*)self;
