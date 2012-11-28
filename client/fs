@@ -33,29 +33,13 @@ PORT = 34401
 # the files will be put in /tmp/vspm55/bla/bla/bla
 SERVER_ROOT_DIR = '/tmp'
 
-# DIRTY DIRTY MONKEY PATCHING:
-# Dynamically redefine the getpass.getpass method in the python
-# standard library to print this error and exit the whole program.
-# This intercepts the call made zmq.ssh.ssh_tunnel asking for your
-# password if you don't have passwordless SSH keys set up.
-# this works with pyzmq 2.2
-def mygetpass(prompt):
-    script_name = os.path.basename(sys.argv[0])
-    print >> sys.stderr, usage(script_name)
-    print >> sys.stderr, ('%s: error: you must enable symmetric passwordless SSH between this computer '
-           'and the host by mutually exchanging public keys' % script_name)
-    sys.exit(1)
-getpass.getpass = mygetpass
-# this monkey patch only works if we import the ssh module after applying the patch
-from zmq import ssh
-
 
 def normalize_path(path):
     "Return the cannonical path of a file, relative to $HOME"
     return os.path.relpath(os.path.abspath(path), os.environ['HOME'])
 
 
-def main(path, editor, server_addr):
+def main(path, editor, server_addr, client_hostname):
     "Run everything!"
 
     npath = normalize_path(path)
@@ -67,9 +51,17 @@ def main(path, editor, server_addr):
     
     context = zmq.Context.instance()
     sock = context.socket(zmq.REQ)
-    ssh.tunnel_connection(sock, "tcp://localhost:%d" % PORT, server_addr)
 
-    server_fn = os.path.join(SERVER_ROOT_DIR, socket.gethostname(), npath)
+    # connect the socket. Note, we want to use server_addr, but WITHOUT
+    # the username portion -- i.e. if server_addr is user@hostname, we
+    # only want to connect the socket to hostname
+    if '@' in server_addr:
+        server_hostname = server_addr.split('@')[1]
+    else:
+        server_hostname = server_addr
+    sock.connect('tcp://%s:%s' % (server_hostname, PORT))
+
+    server_fn = os.path.join(SERVER_ROOT_DIR, client_hostname, npath)
     client_fn = os.path.abspath(path)
     
     # without trailing slashes, rsync will copy the results back into
@@ -98,7 +90,7 @@ def main(path, editor, server_addr):
         do_rsync()
     
     #http://stackoverflow.com/questions/842059/is-there-a-portable-way-to-get-the-current-username-in-python
-    user_at_client = '%s@%s' % (getpass.getuser(), socket.gethostname())
+    user_at_client = '%s@%s' % (getpass.getuser(), client_hostname)
         
     #alert the server that we've sent it the file
     sock.send(json.dumps({'type': 'path',
@@ -128,6 +120,9 @@ and any edits you make will by synced back to the remote machine. To get
 going, you need to run the fsync server on your local workstation -- tt's
 a tiny little status bar app.
 
+Note, the default editor is `mate`, so if you don't have textmate, you
+might want to change that by setting $FSYNC_EDITOR.
+
 requirements:
   * fsync server app running on local workstation
   * symmetrical passwordless SSH via public keys between your workstation
@@ -140,6 +135,11 @@ customize with env variables:
                                    FSYNC_USER=robert and FSYNC_SERVER=vspm10,
                                    your files will be synced to robert@vspm10
                                    instead of whatever's in SSH_CLIENT.
+  * $FSYNC_CLIENT_HOSTNAME         Override the hostname of the client.
+                                   (machine that you're executing `fs` on)
+                                   Use this option if you need to SSH into
+                                   the client from your workstation with
+                                   a special address
 
 optional arguments:
   -h, --help            Show this help message and exit
@@ -186,7 +186,13 @@ def dispatch():
     if 'FSYNC_USER' in os.environ:
         server_addr = os.environ['FSYNC_USER'] + '@' + server_addr
 
-    main(path=sys.argv[1], editor=editor, server_addr=server_addr)
+    if 'FSYNC_CLIENT_HOSTNAME' in os.environ:
+        client_hostname = os.environ['FSYNC_CLIENT_HOSTNAME']
+    else:
+        client_hostname = socket.gethostname()
+
+    main(path=sys.argv[1], editor=editor, server_addr=server_addr,
+         client_hostname=client_hostname)
 
    
 if __name__ == '__main__':

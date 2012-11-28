@@ -16,7 +16,7 @@ from setuptools import setup
 
 setup(name='fsync-client',
       version='0.1',
-      install_requires=['pyzmq>=2.1.11', 'pexpect'],
+      install_requires=['pyzmq>=2.1.11'],
       license='GPL-3',
       author='Robert McGibbon',
       author_email='rmcgibbo@gmail.com',
