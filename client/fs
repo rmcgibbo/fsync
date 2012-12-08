@@ -2,11 +2,11 @@
 # This file is part of fsync
 #
 # fsync is free software: you can redistribute it and/or modify it under the
-# terms of the GNU General Public License as published by the Free Software 
+# terms of the GNU General Public License as published by the Free Software
 # Foundation, either version 3 of the License, or (at your option) any later
 # version.
 #
-# fsync is distributed in the hope that it will be useful, but WITHOUT ANY 
+# fsync is distributed in the hope that it will be useful, but WITHOUT ANY
 # WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
 # FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 #
@@ -19,6 +19,7 @@ import socket  # supposed to be the best way to get the hostname
 import getpass # supposed to be the best way to get the username
 import subprocess
 import json
+import itertools
 
 # the editor to use. this can be overriden with an env variable
 # or on the command line
@@ -33,13 +34,22 @@ PORT = 34401
 # the files will be put in /tmp/vspm55/bla/bla/bla
 SERVER_ROOT_DIR = '/tmp'
 
+EXCLUDE='''
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.sqlite3
+build/
+dist/
+'''
 
 def normalize_path(path):
     "Return the cannonical path of a file, relative to $HOME"
     return os.path.relpath(os.path.abspath(path), os.environ['HOME'])
 
 
-def main(path, editor, server_addr, client_hostname):
+def main(path, editor, server_addr, client_hostname, exclude):
     "Run everything!"
 
     npath = normalize_path(path)
@@ -48,7 +58,7 @@ def main(path, editor, server_addr, client_hostname):
         open(path, 'w').close()
     if '..' in npath:
         raise ValueError('Sorry, %s is not in the home directory' % path)
-    
+
     context = zmq.Context.instance()
     sock = context.socket(zmq.REQ)
 
@@ -63,7 +73,7 @@ def main(path, editor, server_addr, client_hostname):
 
     server_fn = os.path.join(SERVER_ROOT_DIR, client_hostname, npath)
     client_fn = os.path.abspath(path)
-    
+
     # without trailing slashes, rsync will copy the results back into
     # a subdirectory
     if os.path.isdir(path):
@@ -76,6 +86,10 @@ def main(path, editor, server_addr, client_hostname):
         # junk thats currently there
         # note, when the server rsyncs the results back, it will NOT use --delete
         cmd = ['/usr/bin/rsync', '--delete', '-r', path, server_addr + ':' + server_fn]
+        for pattern in itertools.chain(EXCLUDE.split(), exclude):
+            cmd.append('--exclude')
+            cmd.append("'%s'" % pattern)
+
         subprocess.check_output(' '.join(cmd), shell=True, stderr=subprocess.STDOUT)
 
     try:
@@ -88,10 +102,10 @@ def main(path, editor, server_addr, client_hostname):
                         "dir": os.path.dirname(server_fn)})
         assert sock.recv() == 'OK'
         do_rsync()
-    
+
     #http://stackoverflow.com/questions/842059/is-there-a-portable-way-to-get-the-current-username-in-python
     user_at_client = '%s@%s' % (getpass.getuser(), client_hostname)
-        
+
     #alert the server that we've sent it the file
     sock.send(json.dumps({'type': 'path',
                           'displayname': '~/' + npath,
@@ -146,7 +160,7 @@ optional arguments:
   -e, --editor          Choose which editor to use on you local workstation
 
 positional argument:
-  {file_or_directory}   The file or directory to open on your local machine'''    
+  {file_or_directory}   The file or directory to open on your local machine'''
 
 
 def dispatch():
@@ -160,7 +174,7 @@ def dispatch():
     elif sys.argv[1] in ['-h', '--help']:
         print help()
         return 0
-    
+
     # set the editor
     # each option here overrides the last, if present
     editor = DEFAULT_EDITOR
@@ -191,11 +205,15 @@ def dispatch():
     else:
         client_hostname = socket.gethostname()
 
-    main(path=sys.argv[1], editor=editor, server_addr=server_addr,
-         client_hostname=client_hostname)
+    exclude = []
+    if 'FSYNC_EXCLUDE' in os.environ:
+        exclude.extend(os.environ['FSYNC_EXCLUDE'].split(':'))
 
-   
+
+    main(path=sys.argv[1], editor=editor, server_addr=server_addr,
+         client_hostname=client_hostname, exclude=exclude)
+
+
 if __name__ == '__main__':
     status = dispatch()
     sys.exit(status)
-
